@@ -11,7 +11,7 @@ Full write-up, method, and results are in the paper. See the abstract on page 1 
 | File | Description |
 |---|---|
 | `project.qmd` | Quarto document with the full analysis pipeline: data cleaning, correlation analysis, descriptive statistics, latent profile analysis (`tidyLPA`), profile visualization, and group comparisons (Welch's ANOVA / Games-Howell post hoc) across sleep, mood, and demographic variables. |
-| [project.html](https://iChenhahahahahaha.github.io/lpa_attachment_sleep/) | Rendered output of `project.qmd` — open this to view all code, tables, and figures without needing to install R/Quarto or the raw data. |
+| [project.html](https://iChenhahahahaha.github.io/lpa_attachment_sleep/project.html) | Rendered output of `project.qmd` — open this to view all code, tables, and figures without needing to install R/Quarto or the raw data. |
 | `ichen01_practicum26_paper.pdf` | Final written report (APA-style), including the abstract, introduction, method, results, discussion, and references. |
 | `ichen01_practicum26_presentation.pdf` | Slide deck summarizing the project. |
 
