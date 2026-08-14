@@ -1,0 +1,1842 @@
+---
+title: "A Latent Profile Analysis of Attachment Dimensions and Their Associations with Sleep, Mood, and Fatigue"
+author: Iris Chen
+format:
+  html:
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+    toc: true
+execute:
+  df-print: kable
+  message: false
+  warning: false
+  cache: false
+---
+
+## Data Management
+
+```{r}
+# load up all the packages we need for this analysis
+library(tidyLPA)
+library(descr)
+library(dplyr)
+library(tidyr)
+library(corrplot)
+library(qacBase)
+library(Hmisc)
+library(gtsummary)
+library(apaTables)
+library(psych)
+library(ggplot2)
+
+# read in the raw survey data
+data = read.csv("SleepHygiene.csv")
+```
+
+```{r}
+# first row is just the question text from the survey, not real answers, so drop it
+data <- data[-1, ]
+rownames(data) <- NULL
+```
+
+### Rename Columns
+
+```{r}
+# the original column names (Q1, Q18_1REC, etc.) are basically unreadable,
+# so renaming everything to something that actually makes sense
+data <- data %>%
+  rename(
+    gender = Q1,
+    relationship_duration = Q2_A,
+    age = Q3_A,
+    ethnicity = Q4_A,
+    live = Q32,
+    hygiene_1 = Q18_1REC,
+    hygiene_2 = Q18_2REC,
+    hygiene_3 = Q18_3REC,
+    hygiene_4 = Q18_4REC,
+    hygiene_5 = Q18_5REC,
+    hygiene_6 = Q18_6rec,
+    hygiene_7 = Q18_7rec,
+    hygiene_8 = Q18_8rec,
+    hygiene_9 = Q18_9rec,
+    hygiene_10 = Q18_10rec,
+    hygiene_11 = Q18_11rec,
+    hygiene_12 = Q18_12rec,
+    hygiene_13 = Q18_13rec,
+    SLEEP_HYG_SCORE = Health_Behaviour,
+    fatigue = Q20_1,
+    sleep_duration = leep_Duration,
+    bedtime = Q27,
+    wakeuptime = Q28,
+    insomnia_psqi = Q29_1_RECODE,
+    wakeful_psqi = Q29_2_REC,
+    breathing_psqi = Q29_3_RECODE,
+    snoring_psqi = Q29_4_RECODE,
+    hot_psqi = Q29_5_RECODE,
+    nightmares_psqi = Q29_6_RECODE,
+    pain_psqi = Q29_7_RECODE,
+    Anxious1 = Anxiety1
+  )
+```
+
+### Select Columns
+
+```{r}
+# just grabbing the columns we actually need for this analysis, ignoring the rest
+library(dplyr)
+data_select <- data %>%
+  select(gender, relationship_duration, age, ethnicity, live,
+         fatigue, bedtime, wakeuptime, sleep_duration, SleepEfficiency,
+         SLEEP_DUR_SCORE, ONSET_SCORE, SLP_QUALITY_SCORE,
+         pain_psqi, nightmares_psqi, hot_psqi, snoring_psqi, breathing_psqi,
+         wakeful_psqi, insomnia_psqi, Sleep_Problem_total, Sleep_Problem_score,
+         Enthusiasm2, TroubleAWAKE, ENTHUSIASMTROUBLE,
+         Enthusiasm_and_trouble_score, sleep_efficiencySCORE, SLEEP_SCORE_TOTAL,
+         Avoidance1REC, Avoidance3, Avoidance5REC, Avoidance7, Avoidance9REC,
+         Avoidance11, Anxiety2, Anxiety4, Anxiety6, Anxiety8REC, Anxiety10,
+         Anxiety12,
+         AnxietyMEAN, AvoidanceMEAN, Avoidance, Anxiety, hygiene_1, hygiene_2,
+         hygiene_3, hygiene_4, hygiene_5, hygiene_6, hygiene_7, hygiene_8,
+         hygiene_9, hygiene_10, hygiene_11, hygiene_12, hygiene_13, SLEEP_HYG_SCORE,
+         Anxious1, Anxious2, depressed1, depressed2, Anxiousmood, Depressedmood)
+```
+
+### Convert Null to NA
+
+```{r}
+# the missing values from the survey export show up as the weird string "#NULL!",
+# R doesn't recognize that as missing, so swap it out for a real NA
+data_select[data_select == "#NULL!"] <- NA
+```
+
+### Convert Datatypes
+
+```{r}
+# these ones are categorical, so turn them into factors
+data_select <- data_select %>%
+  mutate(
+    gender = factor(gender),
+    relationship_duration = factor(relationship_duration),
+    ethnicity = factor(ethnicity),
+    live = factor(live)
+  )
+```
+
+```{r}
+# everything except those factor columns and the two time columns should be numeric
+data_select <- data_select %>%
+  mutate(across(-c(bedtime,
+                   wakeuptime,
+                   gender,
+                   relationship_duration,
+                   ethnicity,
+                   live),
+                as.numeric))
+```
+
+## Correlation Analysis
+
+```{r}
+# grabbing a bunch of sleep / mood / attachment variables to see how they correlate with each other
+cor_data <- data_select %>%
+  select(relationship_duration,
+         SLEEP_DUR_SCORE,
+         ONSET_SCORE,
+         SLP_QUALITY_SCORE,
+         Sleep_Problem_score,
+         Enthusiasm_and_trouble_score,
+         sleep_efficiencySCORE,
+         Anxious1,
+         Anxious2,
+         depressed1,
+         depressed2,
+         Avoidance1REC,
+         Avoidance3,
+         Avoidance5REC,
+         Avoidance7,
+         Avoidance9REC,
+         Avoidance11,
+         Anxiety2,
+         Anxiety4,
+         Anxiety6,
+         Anxiety8REC,
+         Anxiety10,
+         Anxiety12,
+        Sleep_Problem_total,
+        SLEEP_SCORE_TOTAL,
+        Avoidance,
+        Anxiety,
+        SLEEP_HYG_SCORE,
+        Anxiousmood,
+        Depressedmood)
+
+# quick correlation plot so we can see what's related to what at a glance
+cor_plot(cor_data)
+```
+
+## Descriptive Statistics
+
+```{r}
+# cutting age into groups so we can do demographic descriptives
+data_des <- data_select %>%
+  mutate(
+    age_group = cut(
+      age,
+      breaks = c(17,29,39,49,59,69,79,89),
+      labels = c("18-29","30–39","40–49","50–59",
+                 "60–69","70–79","80–89"),
+      right = TRUE
+    )
+  )
+
+# basic demographics table (age group / gender / ethnicity / relationship duration / living situation)
+table1 <- data_des %>%
+  select(age_group, gender, ethnicity, relationship_duration, live) %>%
+  tbl_summary(
+    statistic = all_categorical() ~ "{p}%",
+    missing = "no"
+  ) %>%
+  modify_header(label = "**Category**") %>%
+  bold_labels()
+
+table1
+```
+
+```{r}
+# pulling out the continuous variables separately to run descriptives + a correlation table, then exporting to Table2
+con_vars <- data_select %>%
+  select(sleep_duration,
+         SleepEfficiency,
+         SLEEP_DUR_SCORE,
+         Anxiety,
+         Avoidance,
+         SLEEP_HYG_SCORE,
+         Anxiousmood,
+         Depressedmood,
+         fatigue)
+
+cor_results <- corr.test(con_vars, use = "pairwise")
+desc <- psych::describe(con_vars)[, c("mean", "sd")]
+
+# export an APA-style correlation table (Table2.doc)
+# apa.cor.table(con_vars,
+#               filename = "Table2.doc",
+#               show.conf.interval = FALSE)
+```
+
+## LPA Analysis
+
+```{r}
+# giving the attachment scale items friendlier names - AV = avoidance items, AX = anxiety items
+lpa_rename <- data_select %>%
+  rename(
+    AV1_TurnNeed = Avoidance1REC,
+    AV3_PullBack = Avoidance3,
+    AV5_Comfort = Avoidance5REC,
+    AV7_AvoidClose = Avoidance7,
+    AV9_Discuss = Avoidance9REC,
+    AV11_NervousClose = Avoidance11,
+    AX2_Reassure = Anxiety2,
+    AX4_NotClose = Anxiety4,
+    AX6_ScareAway = Anxiety6,
+    AX8_NoAbandon = Anxiety8REC,
+    AX10_Frustrated = Anxiety10,
+    AX12_WorryCare = Anxiety12
+    )
+```
+
+```{r}
+# run 1 to 4 classes first to see which number of profiles fits best (compare AIC/BIC/entropy etc.)
+set.seed(1234)
+vLPA <- lpa_rename %>%
+  select(AV1_TurnNeed,
+         AV3_PullBack,
+         AV5_Comfort,
+         AV7_AvoidClose,
+         AV9_Discuss,
+         AV11_NervousClose,
+         AX2_Reassure,
+         AX4_NotClose,
+         AX6_ScareAway,
+         AX8_NoAbandon,
+         AX10_Frustrated,
+         AX12_WorryCare) %>%
+  single_imputation() %>%
+  scale()  %>%
+  estimate_profiles(1:4, nrep = 50)
+
+vLPA
+plot_profiles(vLPA, solution = 4)
+
+# quick summary of the fit stats so we can compare across models
+fit <- get_fit(vLPA)
+fit %>%
+  dplyr::select(Model, Classes, AIC, BIC, Entropy, n_min, n_max, BLRT_val, BLRT_p)
+```
+
+```{r}
+# going with the 4-class solution, rerunning it on its own
+set.seed(1234)
+Class4LPA <- lpa_rename %>%
+  select(AV1_TurnNeed,
+         AV3_PullBack,
+         AV5_Comfort,
+         AV7_AvoidClose,
+         AV9_Discuss,
+         AV11_NervousClose,
+         AX2_Reassure,
+         AX4_NotClose,
+         AX6_ScareAway,
+         AX8_NoAbandon,
+         AX10_Frustrated,
+         AX12_WorryCare) %>%
+  single_imputation() %>%
+  scale()  %>%
+  estimate_profiles(4)
+
+Class4LPA
+plot_profiles(Class4LPA)
+```
+
+```{r}
+# pull out each person's assigned class along with the original data
+plot_data <- get_data(Class4LPA)
+plot_data
+```
+
+### Posterior Probability
+
+```{r}
+# find the column names that hold the posterior probabilities, need those next
+prob_cols <- names(plot_data)[grepl("prob|cprob|posterior", names(plot_data), ignore.case = TRUE)]
+
+prob_cols
+```
+
+```{r}
+# peek at the first 10 people's probabilities of belonging to each class
+plot_data %>%
+  dplyr::select(Class, all_of(prob_cols)) %>%
+  head(10)
+```
+
+```{r}
+# average posterior probability by class - checking how "clean" the classification actually is
+pp_by_class <- plot_data %>%
+  group_by(Class) %>%
+  summarise(
+    across(all_of(prob_cols), ~ mean(.x, na.rm = TRUE)),
+    n = n(),
+    .groups = "drop"
+  )
+
+pp_by_class
+```
+
+```{r}
+# for each person, grab the highest posterior probability (the one for the
+# class they were actually assigned to) - closer to 1 = more confident classification
+plot_data <- plot_data %>%
+  mutate(
+    max_postprob = do.call(pmax, c(across(all_of(prob_cols)), na.rm = TRUE))
+  )
+
+# summarize that max probability by class (mean/sd/min/max)
+plot_data %>%
+  group_by(Class) %>%
+  summarise(
+    n = n(),
+    mean_max_postprob = mean(max_postprob, na.rm = TRUE),
+    sd_max_postprob = sd(max_postprob, na.rm = TRUE),
+    min_max_postprob = min(max_postprob, na.rm = TRUE),
+    max_max_postprob = max(max_postprob, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# grab the data for the 4-class solution
+vLPA4 <- get_data(vLPA, solution = 4)
+
+# reshape to long format so it's easier to plot (one row per item)
+long_data <- vLPA4 %>%
+  pivot_longer(
+    cols = starts_with("AV") | starts_with("AX"),
+    names_to = "Indicator",
+    values_to = "Score"
+  )
+long_data
+```
+
+### Calculate Means per Class
+
+```{r}
+# average score per class per item, need this for the profile plots
+plot_lpa <- long_data %>%
+  group_by(Class, Indicator) %>%
+  summarise(Mean = mean(Score), .groups = "drop")
+```
+
+```{r}
+# lock in the order the items show up in on the plot, otherwise it defaults
+# to alphabetical and looks messy
+plot_lpa <- plot_lpa %>%
+  mutate(
+    Indicator = factor(
+      Indicator,
+      levels = c(
+        "AV1_TurnNeed",
+        "AV3_PullBack",
+        "AV5_Comfort",
+        "AV7_AvoidClose",
+        "AV9_Discuss",
+        "AV11_NervousClose",
+        "AX2_Reassure",
+        "AX4_NotClose",
+        "AX6_ScareAway",
+        "AX8_NoAbandon",
+        "AX10_Frustrated",
+        "AX12_WorryCare"
+      )
+    )
+  )
+```
+
+```{r}
+# use line type to tell the four profiles apart, plotting the standardized
+# mean score for each item
+ggplot(plot_lpa, aes(x = Indicator, y = Mean,
+                      group = Class,
+                      linetype = factor(Class))) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  scale_linetype_manual(
+  values = c("solid", "dashed", "dotted", "dotdash"),
+  labels = c("Dismissive-leaning", "Fearful-avoidant", "Anxious-preoccupied", "Secure")
+) +
+  theme_classic() +
+  labs(
+    y = "Standardized Scores",
+    x = "Attachment Indicators",
+    linetype = "Profile"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# same plot but with color instead of linetype - a bit easier to read
+plot_lpa$Class <- factor(plot_lpa$Class)
+
+ggplot(plot_lpa,
+       aes(x = Indicator,
+           y = Mean,
+           group = Class,
+           color = Class)) +
+
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+
+  scale_color_manual(values = c(
+    "#1b9e77",
+    "#d95f02",
+    "#7570b3",
+    "#e7298a",
+    "#66a61e",
+    "#e6ab02"
+  )) +
+
+  theme_classic() +
+
+  labs(
+    y = "Standardized Scores",
+    x = "Attachment Indicators",
+    color = "Profile"
+  ) +
+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# faceted version - splits the four profiles into separate small plots so
+# it's easier to look at each one
+plot_lpa$Class <- factor(plot_lpa$Class)
+
+ggplot(plot_lpa,
+       aes(x = Indicator,
+           y = Mean,
+           group = Class,
+           color = Class)) +
+
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  geom_hline(aes(yintercept = 0), linetype = 2)+
+  facet_wrap(~Class)+
+
+  scale_color_manual(values = c(
+    "#1b9e77",
+    "#d95f02",
+    "#7570b3",
+    "#e7298a",
+    "#66a61e",
+    "#e6ab02"
+  )) +
+
+  theme_classic() +
+
+  labs(
+    y = "Standardized Scores",
+    x = "Attachment Indicators",
+    color = "Profile"
+  ) +
+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Profile Interpretation
+
+Based on the plots above, here's the plain-language read on the four profiles (not a formal definition, just what the pattern seems to say):
+
+**Profile 1 (low anxiety, moderate avoidance)**
+
+- Turns to partner less
+- Seeks comfort less
+- Shares problems less
+
+These people aren't really anxious about the relationship, but they also don't lean on their partner much for emotional support - kind of independent, a bit distant.
+
+**Profile 2 (fearful/disorganized attachment)**
+
+A few items are reverse-coded (Q1, Q5, Q9), so they look low on the graph, but once you flip them back:
+
+- Turns to partner a lot (Q1)
+- Really wants comfort/reassurance (Q5)
+- Very willing to talk about problems (Q9)
+
+So underneath, there's actually a strong desire for closeness. At the same time:
+
+- Very high anxiety: needs reassurance (Q2), worries about partner's feelings (Q12), gets frustrated when partner's unavailable (Q10), feels rejected (Q4)
+- Very high avoidance: pulls back (Q3), avoids closeness (Q7), gets nervous when partner gets close (Q11), scares partners away (Q6)
+
+Basically: really wants closeness and reassurance, but also feels unsafe and pulls away - classic fearful/disorganized attachment.
+
+**Profile 3 (anxious/preoccupied attachment)**
+
+- Low avoidance: doesn't avoid closeness (Q7), not very nervous about closeness (Q11), doesn't pull back much (Q3)
+- High anxiety: needs reassurance (Q2), worries partner doesn't care enough (Q12), gets frustrated when unavailable (Q10), feels not close enough (Q4)
+- Lots of closeness behaviors: turns to partner (Q1, after reversing), seeks comfort (Q5, after reversing), talks about problems (Q9, after reversing)
+
+Short version: wants closeness and doesn't avoid it, but worries a lot about the relationship.
+
+**Profile 4 (secure)**
+
+Both anxiety and avoidance are low - the most "stable" group of the four.
+
+## ANOVA & post hoc
+
+```{r}
+# check how many people ended up in each class
+plot_data$Class <- factor(plot_data$Class)
+table(plot_data$Class)
+```
+
+```{r}
+# save the 12 attachment item names, need this for the loop below
+vars <- c(
+  "AV1_TurnNeed",
+  "AV3_PullBack",
+  "AV5_Comfort",
+  "AV7_AvoidClose",
+  "AV9_Discuss",
+  "AV11_NervousClose",
+  "AX2_Reassure",
+  "AX4_NotClose",
+  "AX6_ScareAway",
+  "AX8_NoAbandon",
+  "AX10_Frustrated",
+  "AX12_WorryCare"
+)
+```
+
+```{r}
+# average score per item per class, using the standardized data (same numbers as what's in the plots)
+mean_table <- plot_data %>%
+  group_by(Class) %>%
+  summarise(across(all_of(vars), ~ mean(.x, na.rm = TRUE)))
+
+mean_table
+```
+
+```{r}
+# switching to the raw (non-standardized) scores here, easier to interpret for the statistical tests
+raw_data_with_class <- lpa_rename %>%
+  select(AV1_TurnNeed,
+         AV3_PullBack,
+         AV5_Comfort,
+         AV7_AvoidClose,
+         AV9_Discuss,
+         AV11_NervousClose,
+         AX2_Reassure,
+         AX4_NotClose,
+         AX6_ScareAway,
+         AX8_NoAbandon,
+         AX10_Frustrated,
+         AX12_WorryCare) %>%
+  single_imputation() %>%
+  mutate(Class = plot_data$Class)
+```
+
+```{r}
+# Class needs to be a factor or the ANOVA below will complain
+raw_data_with_class$Class <- factor(raw_data_with_class$Class)
+```
+
+```{r}
+# raw-score version of the mean table, for comparing against the standardized one
+mean_table_raw <- raw_data_with_class %>%
+  group_by(Class) %>%
+  summarise(across(all_of(vars), mean, na.rm = TRUE))
+
+mean_table_raw
+```
+
+```{r}
+# testing the workflow on one variable first - one-way ANOVA + post hoc -
+# just to make sure everything works before looping
+model1 <- aov(AV1_TurnNeed ~ Class, data = raw_data_with_class)
+summary(model1)
+TukeyHSD(model1)
+```
+
+```{r}
+# turning that workflow above into a loop, running ANOVA on all 12 attachment items
+library(purrr)
+anova_results <- purrr::map_dfr(vars, function(v) {
+  model <- aov(as.formula(paste(v, "~ Class")), data = raw_data_with_class)
+  out <- summary(model)[[1]]
+
+  tibble(
+    Indicator = v,
+    F_value = out$`F value`[1],
+    p_value = out$`Pr(>F)`[1]
+  )
+})
+
+anova_results
+```
+
+```{r}
+# using compact letter display to see which classes differ significantly:
+# same item, different letters = those two classes are significantly different
+library(multcomp)
+library(emmeans)
+cld_results <- purrr::map_df(vars, function(v) {
+  model <- aov(as.formula(paste(v, "~ Class")), data = raw_data_with_class)
+  emm <- emmeans(model, ~ Class)
+  out <- cld(emm, adjust = "tukey", Letters = letters) %>%
+    as.data.frame()
+
+  out %>%
+    transmute(
+      Indicator = v,
+      Class,
+      Mean = emmean,
+      Group = gsub(" ", "", .group)
+    )
+})
+
+cld_results
+```
+
+```{r}
+# reshaping the item x class means and significance letters into a wide table,
+# so it's ready to drop straight into the paper
+means_wide <- cld_results %>%
+  dplyr::select(Indicator, Class, Mean) %>%
+  pivot_wider(
+    names_from = Class,
+    values_from = Mean
+  ) %>%
+  rename(
+    Profile1_Mean = `1`,
+    Profile2_Mean = `2`,
+    Profile3_Mean = `3`,
+    Profile4_Mean = `4`
+  )
+
+groups_wide <- cld_results %>%
+  dplyr::select(Indicator, Class, Group) %>%
+  pivot_wider(
+    names_from = Class,
+    values_from = Group
+  ) %>%
+  rename(
+    Profile1_Group = `1`,
+    Profile2_Group = `2`,
+    Profile3_Group = `3`,
+    Profile4_Group = `4`
+  )
+
+# also building a "high to low" significance ordering, like "2 > 3 > 1,4"
+ordering_table <- cld_results %>%
+  arrange(Indicator, desc(Mean)) %>%
+  group_by(Indicator, Group) %>%
+  summarise(
+    Classes = paste(Class, collapse = ","),
+    Mean = mean(Mean),
+    .groups = "drop"
+  ) %>%
+  arrange(Indicator, desc(Mean)) %>%
+  group_by(Indicator) %>%
+  summarise(
+    Sig_Order = paste(Classes, collapse = " > "),
+    .groups = "drop"
+  )
+
+final_table <- anova_results %>%
+  left_join(means_wide, by = "Indicator") %>%
+  left_join(groups_wide, by = "Indicator") %>%
+  left_join(ordering_table, by = "Indicator")
+
+final_table
+
+# could export to csv if needed, leaving it commented out for now
+# write.csv(final_table, "Table5_style_attachment_results.csv", row.names = FALSE)
+```
+
+```{r}
+# paper-style formatted table, exported to a Word doc (Table5)
+library(officer)
+library(flextable)
+
+table_for_doc <- final_table %>%
+  mutate(
+    Profile1_Mean = round(Profile1_Mean, 2),
+    Profile2_Mean = round(Profile2_Mean, 2),
+    Profile3_Mean = round(Profile3_Mean, 2),
+    Profile4_Mean = round(Profile4_Mean, 2),
+    F_value = round(F_value, 2),
+    p_value = ifelse(as.numeric(p_value) < .001, "< .001", sprintf("%.3f", as.numeric(p_value)))
+  ) %>%
+  rename(
+    Dimension = Indicator,
+    `Profile 1` = Profile1_Mean,
+    `Profile 2` = Profile2_Mean,
+    `Profile 3` = Profile3_Mean,
+    `Profile 4` = Profile4_Mean,
+    `F` = F_value,
+    `p` = p_value,
+    `Sig. Order` = Sig_Order
+  ) %>%
+  dplyr::select(Dimension, `Profile 1`, `Profile 2`, `Profile 3`, `Profile 4`, `F`, `p`, `Sig. Order`)
+
+ft <- flextable(table_for_doc) %>%
+  theme_booktabs() %>%
+  autofit() %>%
+  align(j = 1, align = "left", part = "all") %>%
+  align(j = 2:ncol(table_for_doc), align = "center", part = "all") %>%
+  bold(part = "header") %>%
+  fontsize(size = 11, part = "all") %>%
+  font(fontname = "Times New Roman", part = "all") %>%
+  padding(padding = 4, part = "all")
+
+doc <- read_docx() %>%
+  body_add_par("Table 5", style = "Normal") %>%
+  body_add_par("Raw mean attachment dimension scores for the four-profile solution.", style = "Normal") %>%
+  body_add_flextable(ft) %>%
+  body_add_par(
+    "Note. Values are raw means. Sig. Order indicates significant pairwise differences across profiles based on Tukey-adjusted comparisons.",
+    style = "Normal"
+  )
+
+print(doc, target = "Table5_attachment_results.docx")
+```
+
+## Post Analysis
+
+```{r}
+# giving everyone an id so we can merge the Class assignment back into the main dataset later
+data_select <- data_select %>%
+  mutate(id = row_number())
+
+lpa_input <- data_select %>%
+  rename(
+    AV1_TurnNeed = Avoidance1REC,
+    AV3_PullBack = Avoidance3,
+    AV5_Comfort = Avoidance5REC,
+    AV7_AvoidClose = Avoidance7,
+    AV9_Discuss = Avoidance9REC,
+    AV11_NervousClose = Avoidance11,
+    AX2_Reassure = Anxiety2,
+    AX4_NotClose = Anxiety4,
+    AX6_ScareAway = Anxiety6,
+    AX8_NoAbandon = Anxiety8REC,
+    AX10_Frustrated = Anxiety10,
+    AX12_WorryCare = Anxiety12
+  )
+
+# rerunning the 4-class LPA (same setup as before, so results stay consistent)
+set.seed(1234)
+Class4LPA <- lpa_input %>%
+  dplyr::select(AV1_TurnNeed, AV3_PullBack, AV5_Comfort, AV7_AvoidClose,
+         AV9_Discuss, AV11_NervousClose, AX2_Reassure, AX4_NotClose,
+         AX6_ScareAway, AX8_NoAbandon, AX10_Frustrated, AX12_WorryCare) %>%
+  single_imputation() %>%
+  scale() %>%
+  estimate_profiles(4)
+
+# grab everyone's class assignment and merge it back in by id
+class_df <- get_data(Class4LPA) %>%
+  mutate(id = data_select$id) %>%
+  dplyr::select(id, Class)
+
+# now every person's original variables + attachment Class are in one table -
+# this is what we'll use for the rest of the analysis
+analysis_data <- data_select %>%
+  left_join(class_df, by = "id") %>%
+  mutate(Class = factor(Class))
+```
+
+### Graphs - 2
+
+#### Continuous variables
+
+```{r}
+# listing out the continuous variables we want to look at
+cont_vars <- c(
+  "age",
+  "sleep_duration",
+  "SleepEfficiency",
+  "SLEEP_DUR_SCORE",
+  "ONSET_SCORE",
+  "SLP_QUALITY_SCORE",
+  "Sleep_Problem_score",
+  "Enthusiasm_and_trouble_score",
+  "sleep_efficiencySCORE",
+  "SLEEP_SCORE_TOTAL",
+  "SLEEP_HYG_SCORE",
+  "Anxiousmood",
+  "Depressedmood",
+  "fatigue"
+)
+
+plot_cont <- analysis_data %>%
+  dplyr::select(Class, all_of(cont_vars)) %>%
+  pivot_longer(
+    cols = -Class,
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+# violin + boxplot + jittered points all in one, so we get the shape, the
+# quartiles, and each individual's value all at once
+ggplot(plot_cont, aes(x = Class, y = Value, fill = Class)) +
+  geom_violin(trim = FALSE, alpha = .35, na.rm = TRUE) +
+  geom_boxplot(width = .15, outlier.shape = NA, alpha = .7, na.rm = TRUE) +
+  geom_jitter(width = .08, alpha = .25, size = 1, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Continuous variables by attachment profile",
+    x = "Attachment profile",
+    y = "Value"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 9)
+  )
+```
+
+#### Overall distributions: Histogram
+
+```{r}
+# not splitting by class here, just looking at the overall shape of each variable
+ggplot(plot_cont, aes(x = Value)) +
+  geom_histogram(bins = 25, color = "white", fill = "grey70", na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_classic() +
+  labs(
+    title = "Overall distributions of continuous variables",
+    x = "Value",
+    y = "Count"
+  )
+```
+
+```{r}
+# now splitting by class to compare distribution shapes across profiles
+ggplot(plot_cont, aes(x = Value, fill = Class)) +
+  geom_density(alpha = .3, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_classic() +
+  labs(
+    title = "Density plots by attachment profile",
+    x = "Value",
+    y = "Density"
+  )
+
+# picking a few key variables and using a grid (one row per class) to zoom in
+ggplot(filter(plot_cont, Variable %in% c("age","sleep_duration","Sleep_Problem_score")), aes(x = Value, fill = Class)) +
+  geom_density(alpha = .3, na.rm = TRUE) +
+  facet_grid(Class~Variable, scales = "free") +
+  theme_classic() +
+  labs(
+    title = "Density plots by attachment profile",
+    x = "Value",
+    y = "Density"
+  )
+```
+
+#### Categorical demographics: proportion bars
+
+```{r}
+# demographic categorical variables - checking their makeup within each attachment profile
+cat_vars <- c("gender", "relationship_duration", "ethnicity", "live")
+
+plot_cat <- analysis_data %>%
+  dplyr::select(Class, all_of(cat_vars)) %>%
+  mutate(across(all_of(cat_vars), as.factor)) %>%
+  pivot_longer(
+    cols = -Class,
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+ggplot(plot_cat, aes(x = Class, fill = Value)) +
+  geom_bar(position = "fill", na.rm = TRUE) +
+  facet_wrap(~ Variable) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_classic() +
+  labs(
+    title = "Demographic composition within each attachment profile",
+    x = "Attachment profile",
+    y = "Proportion",
+    fill = "Category"
+  )
+```
+
+#### Mean pattern plot across variables
+
+```{r}
+# standardizing (z-scoring) all the continuous variables so different scales
+# can be compared on the same plot
+plot_means_df <- analysis_data %>%
+  dplyr::select(Class, all_of(cont_vars)) %>%
+  mutate(across(all_of(cont_vars), ~ as.numeric(scale(.x)))) %>%
+  pivot_longer(
+    cols = -Class,
+    names_to = "Variable",
+    values_to = "Z"
+  ) %>%
+  group_by(Class, Variable) %>%
+  summarise(MeanZ = mean(Z, na.rm = TRUE), .groups = "drop")
+
+# line plot showing the overall pattern per profile across all variables
+ggplot(plot_means_df, aes(x = Variable, y = MeanZ, group = Class, color = Class)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_classic() +
+  labs(
+    title = "Standardized mean patterns across profiles",
+    x = NULL,
+    y = "Standardized mean (z)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+```{r}
+# same info, but as a heatmap this time - color depth = z-score, quicker to scan
+ggplot(plot_means_df, aes(x = Variable, y = Class, fill = MeanZ)) +
+  geom_tile(color = "white") +
+  theme_classic() +
+  labs(
+    title = "Heatmap of standardized means by profile",
+    x = NULL,
+    y = "Attachment profile",
+    fill = "Mean z"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+#### Missingness
+
+```{r}
+# checking how much missing data each continuous variable has
+library(scales)
+missing_df <- analysis_data %>%
+  dplyr::select(all_of(cont_vars)) %>%
+  summarise(across(everything(), ~ mean(is.na(.)))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Variable",
+    values_to = "MissingProp"
+  )
+
+ggplot(missing_df, aes(x = reorder(Variable, MissingProp), y = MissingProp)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = percent) +
+  theme_classic() +
+  labs(
+    title = "Missingness by variable",
+    x = NULL,
+    y = "Percent missing"
+  )
+```
+
+```{r}
+# checking whether missingness depends on attachment Class -
+# if a variable is missing a lot more in one class, that could bias the results
+library(dplyr)
+library(purrr)
+library(tidyr)
+
+vars_to_check <- c(
+  "age",
+  "sleep_duration",
+  "SleepEfficiency",
+  "SLEEP_DUR_SCORE",
+  "ONSET_SCORE",
+  "SLP_QUALITY_SCORE",
+  "Sleep_Problem_score",
+  "Enthusiasm_and_trouble_score",
+  "sleep_efficiencySCORE",
+  "SLEEP_SCORE_TOTAL",
+  "SLEEP_HYG_SCORE",
+  "Anxiousmood",
+  "Depressedmood",
+  "fatigue"
+)
+
+missing_by_class <- map_dfr(vars_to_check, \(v) {
+  dat <- analysis_data %>%
+    mutate(miss = is.na(.data[[v]]))
+
+  tab <- table(dat$Class, dat$miss)
+
+  pval <- tryCatch(chisq.test(tab)$p.value, error = function(e) NA_real_)
+
+  counts <- dat %>%
+    group_by(Class) %>%
+    summarise(n_nonmissing = sum(!miss), .groups = "drop") %>%
+    pivot_wider(names_from = Class, values_from = n_nonmissing, names_prefix = "Class_")
+
+  tibble(
+    Variable = v,
+    N_used = sum(!dat$miss),
+    Missing_p_by_Class = pval
+  ) %>%
+    bind_cols(counts)
+})
+
+missing_by_class
+```
+
+- SLEEP_HYG_SCORE (p = .025): missingness for sleep hygiene may not be evenly distributed across attachment profiles.
+- For age, SLP_QUALITY_SCORE, and fatigue: the p-values there are basically an artifact of how the test was run, not a real warning sign.
+
+### Explore each variable
+
+#### age
+
+```{r}
+ggplot(analysis_data, aes(x = age)) +
+  geom_histogram(bins = 15, fill = "grey70", color = "white") +
+  facet_wrap(~ Class) +
+  theme_classic()
+
+ggplot(analysis_data, aes(x = Class, y = age)) +
+  stat_summary(fun = mean, geom = "point", size = 3) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = .15) +
+  theme_classic()
+
+analysis_data %>%
+  group_by(Class) %>%
+  summarise(
+    n = sum(!is.na(age)),
+    mean = mean(age, na.rm = TRUE),
+    sd = sd(age, na.rm = TRUE),
+    median = median(age, na.rm = TRUE),
+    IQR = IQR(age, na.rm = TRUE),
+    min = min(age, na.rm = TRUE),
+    max = max(age, na.rm = TRUE)
+  )
+```
+
+```{r}
+# Welch ANOVA is mainly about unequal variances (heteroscedasticity) and unequal
+# group sizes, and it's usually fairly robust to non-normality, especially with
+# moderate sample sizes
+
+oneway.test(age ~ Class, data = analysis_data, var.equal = FALSE)
+```
+
+#### gender
+
+```{r}
+# checking gender distribution across the four attachment profiles, then
+# chi-square test + post hoc
+library(chisq.posthoc.test)
+
+table(analysis_data$Class, analysis_data$gender)
+prop.table(table(analysis_data$Class, analysis_data$gender), margin = 1)
+
+ggplot(analysis_data, aes(x = Class, fill = gender)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_classic()
+
+tab_gender <- table(analysis_data$Class, analysis_data$gender)
+tab_gender
+
+chi_gen <- chisq.test(tab_gender)
+chi_gen
+
+Observed_table<-chi_gen$observed
+
+# post hoc test to see exactly which cell (which class x which gender) is
+# driving the significance
+chisq.posthoc.test(
+  Observed_table,
+  method = "bonferroni",
+  simulate.p.value = TRUE
+)
+
+chisq.test(tab_gender)$expected
+```
+
+- Profile 1 having more males and fewer females than expected
+- Profile 3 having more females and fewer males than expected
+- Profiles 2 and 4 do not appear to differ much from expectation
+
+#### ethnicity
+
+```{r}
+table(analysis_data$Class, analysis_data$ethnicity)
+prop.table(table(analysis_data$Class, analysis_data$ethnicity), margin = 1)
+
+ggplot(analysis_data, aes(x = Class, fill = ethnicity)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_classic()
+
+tab_ethnicity <- table(analysis_data$Class, analysis_data$ethnicity)
+chi_eth <- chisq.test(tab_ethnicity)
+chi_eth
+
+Observed_table<-chi_eth$observed
+
+chisq.posthoc.test(
+  Observed_table,
+  method = "bonferroni",
+  simulate.p.value = TRUE
+)
+
+chisq.test(tab_ethnicity)$expected
+```
+
+#### live
+
+```{r}
+table(analysis_data$Class, analysis_data$live)
+prop.table(table(analysis_data$Class, analysis_data$live), margin = 1)
+
+ggplot(analysis_data, aes(x = Class, fill = live)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_classic()
+
+tab_live <- table(analysis_data$Class, analysis_data$live)
+chi_live <- chisq.test(tab_live)
+chi_live
+
+Observed_table<-chi_live$observed
+
+chisq.posthoc.test(
+  Observed_table,
+  method = "bonferroni",
+  simulate.p.value = TRUE
+)
+
+chisq.test(tab_live)$expected
+```
+
+#### relationship duration
+
+```{r}
+table(analysis_data$Class, analysis_data$relationship_duration)
+prop.table(table(analysis_data$Class, analysis_data$relationship_duration), margin = 1)
+
+ggplot(analysis_data, aes(x = Class, fill = relationship_duration)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  theme_classic()
+
+tab_relationship_duration <- table(analysis_data$Class, analysis_data$relationship_duration)
+chi_relationship_duration <- chisq.test(tab_relationship_duration)
+chi_relationship_duration
+
+Observed_table<-chi_relationship_duration$observed
+
+chisq.posthoc.test(
+  Observed_table,
+  method = "bonferroni",
+  simulate.p.value = TRUE
+)
+
+chisq.test(tab_relationship_duration)$expected
+```
+
+> Quick note on where `SLEEP_SCORE_TOTAL` comes from:
+> `SLEEP_SCORE_TOTAL = SLEEP_DUR_SCORE + ONSET_SCORE + SLP_QUALITY_SCORE + Sleep_Problem_score + Enthusiasm_and_trouble_score + sleep_efficiencySCORE`
+
+#### Sleep
+
+```{r}
+# pulling together the sleep / mood / fatigue scores to compare across attachment profiles
+sleep_vars <- c(
+  "SLEEP_DUR_SCORE",
+  "ONSET_SCORE",
+  "SLP_QUALITY_SCORE",
+  "Sleep_Problem_score",
+  "Enthusiasm_and_trouble_score",
+  "sleep_efficiencySCORE",
+  "SLEEP_HYG_SCORE",
+  "Anxiousmood",
+  "Depressedmood",
+  "fatigue"
+)
+
+sleep_long <- analysis_data %>%
+  dplyr::select(Class, all_of(sleep_vars)) %>%
+  pivot_longer(
+    cols = -Class,
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+ggplot(sleep_long, aes(x = Class, y = Value, fill = Class)) +
+  geom_boxplot(alpha = .75, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Sleep, mood, and fatigue scores by attachment profile",
+    x = "Attachment profile",
+    y = "Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 9)
+  )
+
+# switching to mean + confidence interval to emphasize differences in average level
+ggplot(sleep_long, aes(x = Class, y = Value, color = Class)) +
+  stat_summary(fun = mean, geom = "point", size = 2.5, na.rm = TRUE) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = .15, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Mean scores by attachment profile",
+    x = "Attachment profile",
+    y = "Mean score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 9)
+  )
+
+# boxplot + individual jittered points, so we see both distribution and individual variation
+ggplot(sleep_long, aes(x = Class, y = Value, fill = Class)) +
+  geom_boxplot(outlier.shape = NA, alpha = .7, na.rm = TRUE) +
+  geom_jitter(width = .08, alpha = .25, size = 1, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Sleep, mood, and fatigue scores by attachment profile",
+    x = "Attachment profile",
+    y = "Score"
+  ) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 9)
+  )
+
+# manually calculating mean + 95% CI, connecting with lines to see the trend
+plot_means <- sleep_long %>%
+  group_by(Class, Variable) %>%
+  summarise(
+    mean = mean(Value, na.rm = TRUE),
+    se = sd(Value, na.rm = TRUE) / sqrt(sum(!is.na(Value))),
+    .groups = "drop"
+  )
+
+ggplot(plot_means, aes(x = Class, y = mean, group = 1)) +
+  geom_point(size = 2) +
+  geom_line() +
+  geom_errorbar(aes(ymin = mean - 1.96 * se, ymax = mean + 1.96 * se), width = .15) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Mean patterns across attachment profiles",
+    x = "Attachment profile",
+    y = "Mean score"
+  ) +
+  theme(
+    strip.text = element_text(size = 9)
+  )
+```
+
+```{r}
+# a simplified version of the mean + CI plot (no color, cleaner look)
+ggplot(sleep_long, aes(x = Class, y = Value)) +
+  stat_summary(fun = mean, geom = "point", size = 2.5) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = .15) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Mean sleep component scores by attachment profile",
+    x = "Attachment profile",
+    y = "Mean score"
+  )
+```
+
+```{r}
+# full descriptive stats (mean, sd, median, etc.) by class for each sleep/mood variable
+sleep_desc <- map_dfr(sleep_vars, \(v) {
+  analysis_data %>%
+    group_by(Class) %>%
+    summarise(
+      Variable = v,
+      n = sum(!is.na(.data[[v]])),
+      mean = mean(.data[[v]], na.rm = TRUE),
+      sd = sd(.data[[v]], na.rm = TRUE),
+      median = median(.data[[v]], na.rm = TRUE),
+      IQR = IQR(.data[[v]], na.rm = TRUE),
+      min = min(.data[[v]], na.rm = TRUE),
+      max = max(.data[[v]], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::select(Variable, everything())
+})
+
+sleep_desc %>%
+  mutate(
+    across(c(mean, sd, median, IQR, min, max), ~ round(.x, 2))
+  )
+```
+
+```{r}
+# Welch ANOVA for each sleep/mood variable, checking if classes differ,
+# then correcting p-values for multiple comparisons with BH
+sleep_welch <- map_dfr(sleep_vars, \(v) {
+  dat <- analysis_data %>%
+    dplyr::select(Class, value = all_of(v)) %>%
+    filter(!is.na(value))
+
+  wt <- oneway.test(value ~ Class, data = dat, var.equal = FALSE)
+
+  tibble(
+    Variable = v,
+    N_used = nrow(dat),
+    statistic = unname(wt$statistic),
+    df1 = unname(wt$parameter[1]),
+    df2 = unname(wt$parameter[2]),
+    p = wt$p.value
+  )
+}) %>%
+  mutate(
+    p_BH = p.adjust(p, method = "BH"),
+    statistic = round(statistic, 3),
+    df1 = round(df1, 2),
+    df2 = round(df2, 2),
+    p = round(p, 3),
+    p_BH = round(p_BH, 3)
+  )
+
+sleep_welch
+```
+
+```{r}
+# Games-Howell post hoc for each variable (pairs well with Welch ANOVA since it
+# also doesn't assume equal variances) - checking exactly which classes differ
+library(rstatix)
+sig_sleep_vars <- sleep_welch %>%
+  # filter(p_BH < .05) %>%
+  pull(Variable)
+
+sleep_posthoc <- if (length(sig_sleep_vars) > 0) {
+  map_dfr(sig_sleep_vars, \(v) {
+    analysis_data %>%
+      select(Class, value = all_of(v)) %>%
+      filter(!is.na(value)) %>%
+      games_howell_test(value ~ Class) %>%
+      mutate(Variable = v, .before = 1)
+  })
+} else {
+  tibble()
+}
+
+sleep_posthoc %>%
+  mutate(
+    across(where(is.numeric), ~ round(.x, 3))
+  )
+```
+
+##### Tables
+
+```{r}
+# packaging all these test results into one "paper-ready" table:
+# each cell is mean (SE) + a significance letter - different letters means significant difference
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(rstatix)
+library(multcompView)
+
+analysis_data <- analysis_data %>%
+  mutate(Class = factor(Class))
+
+class_levels <- levels(analysis_data$Class)
+
+sleep_desc2 <- map_dfr(sleep_vars, \(v) {
+  analysis_data %>%
+    group_by(Class) %>%
+    summarise(
+      Variable = v,
+      n = sum(!is.na(.data[[v]])),
+      mean = mean(.data[[v]], na.rm = TRUE),
+      se = sd(.data[[v]], na.rm = TRUE) / sqrt(n),
+      .groups = "drop"
+    ) %>%
+    select(Variable, everything())
+})
+
+sig_vars <- sleep_welch %>%
+  filter(p_BH < .05) %>%
+  pull(Variable)
+
+# figuring out the significance letters for each variable:
+# if the variable itself isn't significant, just mark everything "a" (all the same)
+make_letters <- function(v) {
+
+  if (!(v %in% sig_vars)) {
+    return(
+      tibble(
+        Variable = v,
+        Class = factor(class_levels, levels = class_levels),
+        Letters = "a"
+      )
+    )
+  }
+
+  gh <- analysis_data %>%
+    select(Class, value = all_of(v)) %>%
+    filter(!is.na(value)) %>%
+    games_howell_test(value ~ Class)
+
+  p_col <- if ("p.adj" %in% names(gh)) "p.adj" else "p"
+
+  pvals <- gh[[p_col]]
+  names(pvals) <- paste(gh$group1, gh$group2, sep = "-")
+
+  letters <- multcompView::multcompLetters(
+    pvals,
+    threshold = 0.05
+  )$Letters
+
+  tibble(
+    Variable = v,
+    Class = factor(names(letters), levels = class_levels),
+    Letters = letters
+  ) %>%
+    right_join(
+      tibble(Class = factor(class_levels, levels = class_levels)),
+      by = "Class"
+    ) %>%
+    mutate(
+      Variable = v,
+      Letters = ifelse(is.na(Letters), "a", Letters)
+    ) %>%
+    select(Variable, Class, Letters)
+}
+
+sleep_letters <- map_dfr(sleep_vars, make_letters)
+
+# putting it all together into the final wide table - rows are variables,
+# columns are the four profiles
+sleep_table <- sleep_desc2 %>%
+  left_join(sleep_letters, by = c("Variable", "Class")) %>%
+  mutate(
+    Class = recode(as.character(Class),
+      "1" = "Dismissive-leaning",
+      "2" = "Fearful-avoidant",
+      "3" = "Anxious-preoccupied",
+      "4" = "Secure"
+    ),
+    mean = round(mean, 2),
+    se = round(se, 2),
+    Cell = paste0(mean, " (", se, ")", Letters)
+  ) %>%
+  select(Variable, Class, Cell) %>%
+  pivot_wider(
+    names_from = Class,
+    values_from = Cell
+    # names_prefix = "Class "
+  )
+
+sleep_table
+```
+
+```{r}
+# same content, but making a nicer web-friendly version with gt (superscript letters)
+library(gt)
+
+sleep_table_gt <- sleep_desc2 %>%
+  left_join(sleep_letters, by = c("Variable", "Class")) %>%
+  mutate(
+    Class = recode(as.character(Class),
+      "1" = "Dismissive-leaning",
+      "2" = "Fearful-avoidant",
+      "3" = "Anxious-preoccupied",
+      "4" = "Secure"
+    ),
+    mean = round(mean, 2),
+    se = round(se, 2),
+    Cell = paste0(mean, " (", se, ")<sup>", Letters, "</sup>")
+  ) %>%
+  select(Variable, Class, Cell) %>%
+  pivot_wider(
+    names_from = Class,
+    values_from = Cell
+    # names_prefix = "Class "
+  ) %>%
+  gt() %>%
+  fmt_markdown(columns = c(
+    "Dismissive-leaning",
+    "Fearful-avoidant",
+    "Anxious-preoccupied",
+    "Secure"
+  )) %>%
+  tab_source_note(
+    source_note = md(
+      "Classes that do not share a superscript are significantly different based on Games–Howell post-hoc tests, *p* < .05."
+    )
+  )
+
+sleep_table_gt
+```
+
+```{r}
+# merging the descriptives and Welch ANOVA results into one summary table
+sleep_summary <- sleep_desc %>%
+  group_by(Variable) %>%
+  summarise(
+    total_nonmissing = sum(n),
+    .groups = "drop"
+  ) %>%
+  left_join(sleep_welch, by = "Variable")
+
+sleep_summary
+```
+
+```{r}
+# double-checking missingness for these sleep variables against Class again
+sleep_missing <- map_dfr(sleep_vars, \(v) {
+  dat <- analysis_data %>%
+    mutate(miss = is.na(.data[[v]]))
+
+  tab <- table(dat$Class, dat$miss)
+  pval <- tryCatch(chisq.test(tab)$p.value, error = function(e) NA_real_)
+
+  tibble(
+    Variable = v,
+    N_used = sum(!dat$miss),
+    Missing_p_by_Class = pval
+  )
+})
+
+sleep_missing
+```
+
+#### Sleep Total Score
+
+```{r}
+ggplot(analysis_data, aes(x = Class, y = SLEEP_SCORE_TOTAL, fill = Class)) +
+  geom_boxplot(outlier.shape = NA, alpha = .7, na.rm = TRUE) +
+  geom_jitter(width = .08, alpha = .25, size = 1, na.rm = TRUE) +
+  theme_classic() +
+  labs(
+    title = "Total sleep score by attachment profile",
+    x = "Attachment profile",
+    y = "SLEEP_SCORE_TOTAL"
+  ) +
+  theme(legend.position = "none")
+```
+
+```{r}
+analysis_data %>%
+  group_by(Class) %>%
+  summarise(
+    n = sum(!is.na(SLEEP_SCORE_TOTAL)),
+    mean = round(mean(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    sd = round(sd(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    median = round(median(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    IQR = round(IQR(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    min = round(min(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    max = round(max(SLEEP_SCORE_TOTAL, na.rm = TRUE), 2),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# checking whether the total sleep score differs significantly across the four attachment profiles
+sleep_total_dat <- analysis_data %>%
+  select(Class, SLEEP_SCORE_TOTAL) %>%
+  filter(!is.na(SLEEP_SCORE_TOTAL))
+
+oneway.test(SLEEP_SCORE_TOTAL ~ Class, data = sleep_total_dat, var.equal = FALSE)
+```
+
+```{r}
+# figuring out exactly which two profiles differ
+library(rstatix)
+
+sleep_total_dat %>%
+  games_howell_test(SLEEP_SCORE_TOTAL ~ Class)
+```
+
+## Subquestion
+
+### Create age groups
+
+```{r}
+# subquestion: does the attachment profile's effect on sleep change depending on age group?
+# starting simple - splitting age into "18-29" and "29+" groups
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(purrr)
+library(car)
+library(emmeans)
+library(sandwich)
+library(DescTools)
+library(scales)
+
+analysis_data <- analysis_data %>%
+  mutate(
+    AgeGroup = case_when(
+      age >= 18 & age <= 29 ~ "Emerging adults (18–29)",
+      age > 29 ~ "Older adults (>29)",
+      TRUE ~ NA_character_
+    ),
+    AgeGroup = factor(
+      AgeGroup,
+      levels = c("Emerging adults (18–29)", "Older adults (>29)")
+    ),
+    Class = factor(Class)
+  )
+```
+
+```{r}
+tab_age_class <- table(analysis_data$AgeGroup, analysis_data$Class)
+tab_age_class
+
+prop.table(tab_age_class, margin = 1)   # row proportions within age group
+prop.table(tab_age_class, margin = 2)   # column proportions within class
+```
+
+```{r}
+ggplot(analysis_data, aes(x = AgeGroup, fill = Class)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = label_percent()) +
+  theme_classic() +
+  labs(
+    title = "Attachment profile composition by age group",
+    x = NULL,
+    y = "Proportion",
+    fill = "Profile"
+  )
+```
+
+### Chi-square test
+
+```{r}
+# checking whether age group and attachment profile are independent (unrelated) -
+# chi-square test + effect size
+chi_age_class <- chisq.test(tab_age_class)
+chi_age_class
+DescTools::CramerV(tab_age_class)
+
+# standardized residuals - which cell is furthest off from what we'd expect
+round(chi_age_class$stdres, 2)
+```
+
+```{r}
+# running a separate two-proportion test per attachment profile, checking how
+# much its share differs between the two age groups
+profile_prop_tests <- map_dfr(levels(analysis_data$Class), \(cl) {
+  dat <- analysis_data %>%
+    filter(!is.na(AgeGroup), !is.na(Class)) %>%
+    mutate(in_profile = Class == cl)
+
+  counts <- tapply(dat$in_profile, dat$AgeGroup, sum)
+  totals <- table(dat$AgeGroup)
+
+  pt <- prop.test(x = counts, n = totals)
+
+  tibble(
+    Profile = cl,
+    Emerging_prop = counts[1] / totals[1],
+    Older_prop = counts[2] / totals[2],
+    p = pt$p.value
+  )
+}) %>%
+  mutate(
+    p_BH = p.adjust(p, method = "BH"),
+    Emerging_prop = round(Emerging_prop, 3),
+    Older_prop = round(Older_prop, 3),
+    p = round(p, 3),
+    p_BH = round(p_BH, 3)
+  )
+
+profile_prop_tests
+```
+
+```{r}
+# outcome variables we're looking at next (sleep/mood related)
+outcomes <- c(
+  "SLEEP_DUR_SCORE",
+  "ONSET_SCORE",
+  "SLP_QUALITY_SCORE",
+  "Sleep_Problem_score",
+  "Enthusiasm_and_trouble_score",
+  "sleep_efficiencySCORE",
+  "SLEEP_HYG_SCORE",
+  "Anxiousmood",
+  "Depressedmood",
+  "fatigue"
+)
+```
+
+### Descriptives by age group and profile
+
+```{r}
+# descriptives for every outcome variable, grouped by "age group x attachment profile"
+outcome_desc <- analysis_data %>%
+  select(AgeGroup, Class, all_of(outcomes)) %>%
+  pivot_longer(
+    cols = all_of(outcomes),
+    names_to = "Variable",
+    values_to = "Value"
+  ) %>%
+  group_by(Variable, AgeGroup, Class) %>%
+  summarise(
+    n = sum(!is.na(Value)),
+    mean = mean(Value, na.rm = TRUE),
+    sd = sd(Value, na.rm = TRUE),
+    median = median(Value, na.rm = TRUE),
+    IQR = IQR(Value, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    mean = round(mean, 2),
+    sd = round(sd, 2),
+    median = round(median, 2),
+    IQR = round(IQR, 2)
+  )
+
+outcome_desc
+```
+
+### Graph the outcomes
+
+```{r}
+outcome_long <- analysis_data %>%
+  select(AgeGroup, Class, all_of(outcomes)) %>%
+  pivot_longer(
+    cols = all_of(outcomes),
+    names_to = "Variable",
+    values_to = "Value"
+  )
+
+# coloring by age group to see if the mean trend across attachment profiles
+# looks consistent between the two age groups
+ggplot(outcome_long, aes(x = Class, y = Value, color = AgeGroup, group = AgeGroup)) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_dodge(width = .3), size = 2.5, na.rm = TRUE) +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar",
+               position = position_dodge(width = .3), width = .15, na.rm = TRUE) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_classic() +
+  labs(
+    title = "Sleep, mood, and fatigue outcomes by profile and age group",
+    x = "Attachment profile",
+    y = "Mean score",
+    color = "Age group"
+  )
+```
+
+### AgeGroup × Class for each outcome
+
+```{r}
+# using sum contrasts (effect coding) so the main effects in the two-way ANOVA are easier to interpret
+options(contrasts = c("contr.sum", "contr.poly"))
+```
+
+```{r}
+# a function to run a two-way "age group x attachment profile" ANOVA for each outcome variable
+# (using robust HC3 standard errors so it doesn't depend as much on equal-variance assumptions)
+run_two_way <- function(var) {
+  dat <- analysis_data %>%
+    select(AgeGroup, Class, y = all_of(var)) %>%
+    filter(!is.na(AgeGroup), !is.na(Class), !is.na(y))
+
+  fit <- lm(y ~ AgeGroup * Class, data = dat)
+  aov_tab <- car::Anova(fit, type = 3, white.adjust = "hc3")
+
+  tibble(
+    Variable = var,
+    N_used = nrow(dat),
+    AgeGroup_F = aov_tab["AgeGroup", "F value"],
+    AgeGroup_p = aov_tab["AgeGroup", "Pr(>F)"],
+    Class_F = aov_tab["Class", "F value"],
+    Class_p = aov_tab["Class", "Pr(>F)"],
+    Interaction_F = aov_tab["AgeGroup:Class", "F value"],
+    Interaction_p = aov_tab["AgeGroup:Class", "Pr(>F)"]
+  )
+}
+
+# running this for every outcome variable, then correcting p-values across
+# them with BH
+two_way_results <- map_dfr(outcomes, run_two_way) %>%
+  mutate(
+    AgeGroup_p_BH = p.adjust(AgeGroup_p, method = "BH"),
+    Class_p_BH = p.adjust(Class_p, method = "BH"),
+    Interaction_p_BH = p.adjust(Interaction_p, method = "BH")
+  ) %>%
+  mutate(
+    across(ends_with("_F"), ~ round(.x, 3)),
+    across(ends_with("_p"), ~ round(.x, 3))
+  )
+
+two_way_results
+```
+
+```{r}
+# focusing specifically on Sleep_Problem_score - pairwise comparisons across
+# the four attachment profiles
+# (using robust HC3 standard errors, BH-corrected for multiple comparisons)
+fit_sleep <- lm(Sleep_Problem_score ~ AgeGroup * Class, data = analysis_data)
+
+emmeans(
+  fit_sleep,
+  ~ Class,
+  vcov. = sandwich::vcovHC(fit_sleep, type = "HC3")
+) %>%
+  pairs(adjust = "BH")
+```
